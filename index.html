@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>掲示板</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #f4f5f7;
+  font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  color: #222;
+}
+
+.stage {
+  width: 480px;
+  max-width: 92vw;
+  margin: 0 auto;
+  padding: 40px 0 60px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  text-align: center;
+}
+
+.subtitle {
+  margin: 0 0 28px;
+  font-size: 13px;
+  text-align: center;
+  color: #777;
+}
+
+.post-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 28px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e4e9;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.post-form input,
+.post-form textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid #dcdfe4;
+  background: #fafbfc;
+  color: #222;
+  font-family: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.post-form input:focus,
+.post-form textarea:focus {
+  outline: none;
+  border-color: #6b9fff;
+  background: #fff;
+}
+
+.post-form textarea {
+  min-height: 70px;
+}
+
+.post-submit-btn {
+  align-self: flex-end;
+  border: none;
+  padding: 9px 22px;
+  border-radius: 999px;
+  background: #3d6bff;
+  color: #fff;
+  font-weight: bold;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.post-submit-btn:hover { opacity: 0.9; }
+.post-submit-btn:active { opacity: 0.75; }
+.post-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.post-status {
+  font-size: 12px;
+  color: #888;
+  min-height: 16px;
+  margin: 0;
+}
+
+.posts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.post-item {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e2e4e9;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.post-item .post-name {
+  font-weight: bold;
+  font-size: 13px;
+  color: #3d6bff;
+  margin: 0 0 6px;
+}
+
+.post-item .post-body {
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <h1>掲示板</h1>
+  <p class="subtitle">名前とコメントを投稿できます</p>
+
+  <form class="post-form" id="postForm">
+    <input type="text" id="postName" placeholder="お名前" maxlength="50" required>
+    <textarea id="postBody" placeholder="コメント" maxlength="500" required></textarea>
+    <button type="submit" class="post-submit-btn" id="postSubmitBtn">投稿する</button>
+    <p class="post-status" id="postStatus"></p>
+  </form>
+
+  <div class="posts-list" id="postsList"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = "https://ufxdblfrawwoixhdrvel.supabase.co";
+const SUPABASE_KEY = "sb_publishable_VkvnXVMa1KkGe8W3BJo7OQ_d-F-PEnc";
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const postForm = document.getElementById("postForm");
+const postNameInput = document.getElementById("postName");
+const postBodyInput = document.getElementById("postBody");
+const postSubmitBtn = document.getElementById("postSubmitBtn");
+const postStatus = document.getElementById("postStatus");
+const postsList = document.getElementById("postsList");
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function renderPosts(posts) {
+  if (!posts || posts.length === 0) {
+    postsList.innerHTML = '<p class="post-status">まだ投稿がありません。</p>';
+    return;
+  }
+  postsList.innerHTML = posts.map((p) => `
+    <div class="post-item">
+      <p class="post-name">${escapeHtml(p.name)}</p>
+      <p class="post-body">${escapeHtml(p.body)}</p>
+    </div>
+  `).join("");
+}
+
+async function loadPosts() {
+  const { data, error } = await supabaseClient
+    .from("posts")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    postsList.innerHTML = '<p class="post-status">投稿の取得に失敗しました。</p>';
+    console.error(error);
+    return;
+  }
+  renderPosts(data);
+}
+
+postForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = postNameInput.value.trim();
+  const body = postBodyInput.value.trim();
+  if (!name || !body) return;
+
+  postSubmitBtn.disabled = true;
+  postStatus.textContent = "投稿中...";
+
+  const { error } = await supabaseClient.from("posts").insert([{ name, body }]);
+
+  postSubmitBtn.disabled = false;
+  if (error) {
+    postStatus.textContent = "投稿に失敗しました。";
+    console.error(error);
+    return;
+  }
+  postStatus.textContent = "投稿しました！";
+  postNameInput.value = "";
+  postBodyInput.value = "";
+  await loadPosts();
+});
+
+loadPosts();
+</script>
+</body>
+</html>
